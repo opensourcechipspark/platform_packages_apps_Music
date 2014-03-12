@@ -111,7 +111,7 @@ public class AlbumBrowserActivity extends ListActivity
         MusicUtils.updateButtonBar(this, R.id.albumtab);
         ListView lv = getListView();
         lv.setOnCreateContextMenuListener(this);
-        lv.setTextFilterEnabled(true);
+        //lv.setTextFilterEnabled(true);
 
         mAdapter = (AlbumListAdapter) getLastNonConfigurationInstance();
         if (mAdapter == null) {

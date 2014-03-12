@@ -122,6 +122,12 @@ public class MediaPlaybackService extends Service {
     private int mPlayPos = -1;
     private int mNextPlayPos = -1;
     private static final String LOGTAG = "MediaPlaybackService";
+    private static final boolean DEBUG = true;
+    private void LOGD(String msg){
+    	if(DEBUG){
+    		Log.d(LOGTAG,msg);
+    	}
+    }
     private final Shuffler mRand = new Shuffler();
     private int mOpenFailedCounter = 0;
     String[] mCursorCols = new String[] {
@@ -203,9 +209,7 @@ public class MediaPlaybackService extends Service {
                         mCursor.close();
                         mCursor = null;
                     }
-                    if (mPlayPos >= 0 && mPlayPos < mPlayList.length) {
-                        mCursor = getCursorForId(mPlayList[mPlayPos]);
-                    }
+                    mCursor = getCursorForId(mPlayList[mPlayPos]);
                     notifyChange(META_CHANGED);
                     updateNotification();
                     setNextTrack();
@@ -325,7 +329,7 @@ public class MediaPlaybackService extends Service {
         PendingIntent pi = PendingIntent.getBroadcast(this /*context*/,
                 0 /*requestCode, ignored*/, i /*intent*/, 0 /*flags*/);
         mRemoteControlClient = new RemoteControlClient(pi);
-        mAudioManager.registerRemoteControlClient(mRemoteControlClient);
+        /*mAudioManager.registerRemoteControlClient(mRemoteControlClient);
 
         int flags = RemoteControlClient.FLAG_KEY_MEDIA_PREVIOUS
                 | RemoteControlClient.FLAG_KEY_MEDIA_NEXT
@@ -334,7 +338,7 @@ public class MediaPlaybackService extends Service {
                 | RemoteControlClient.FLAG_KEY_MEDIA_PLAY_PAUSE
                 | RemoteControlClient.FLAG_KEY_MEDIA_STOP;
         mRemoteControlClient.setTransportControlFlags(flags);
-        
+        */
         mPreferences = getSharedPreferences("Music", MODE_WORLD_READABLE | MODE_WORLD_WRITEABLE);
         mCardId = MusicUtils.getCardId(this);
         
@@ -377,11 +381,13 @@ public class MediaPlaybackService extends Service {
         i.putExtra(AudioEffect.EXTRA_AUDIO_SESSION, getAudioSessionId());
         i.putExtra(AudioEffect.EXTRA_PACKAGE_NAME, getPackageName());
         sendBroadcast(i);
-        mPlayer.release();
-        mPlayer = null;
+	    if (mPlayer != null) {
+            mPlayer.release();
+            mPlayer = null;
+	    }
 
         mAudioManager.abandonAudioFocus(mAudioFocusListener);
-        mAudioManager.unregisterRemoteControlClient(mRemoteControlClient);
+        //mAudioManager.unregisterRemoteControlClient(mRemoteControlClient);
         
         // make sure there aren't any other messages coming
         mDelayedStopHandler.removeCallbacksAndMessages(null);
@@ -556,9 +562,12 @@ public class MediaPlaybackService extends Service {
             //   own, potentially at some random inconvenient time.
             mOpenFailedCounter = 20;
             mQuietMode = true;
-            openCurrentAndNext();
+            boolean ret = openCurrentAndNext();
             mQuietMode = false;
-            if (!mPlayer.isInitialized()) {
+                if(ret==false){
+			    mCursor=null;
+			}
+	        if (!mPlayer.isInitialized()||ret==false) {
                 // couldn't restore the saved state
                 mPlayListLen = 0;
                 return;
@@ -734,6 +743,8 @@ public class MediaPlaybackService extends Service {
     public void closeExternalStorageFiles(String storagePath) {
         // stop playback and clean up if the SD card is going to be unmounted.
         stop(true);
+	    if (mPlayer != null)
+ 	       mPlayer.nextRelease();
         notifyChange(QUEUE_CHANGED);
         notifyChange(META_CHANGED);
     }
@@ -756,7 +767,8 @@ public class MediaPlaybackService extends Service {
                     } else if (action.equals(Intent.ACTION_MEDIA_MOUNTED)) {
                         mMediaMountedCount++;
                         mCardId = MusicUtils.getCardId(MediaPlaybackService.this);
-                        reloadQueue();
+                        if (!isPlaying())
+                            reloadQueue();
                         mQueueIsSaveable = true;
                         notifyChange(QUEUE_CHANGED);
                         notifyChange(META_CHANGED);
@@ -801,19 +813,19 @@ public class MediaPlaybackService extends Service {
         sendStickyBroadcast(i);
 
         if (what.equals(PLAYSTATE_CHANGED)) {
-            mRemoteControlClient.setPlaybackState(isPlaying() ?
-                    RemoteControlClient.PLAYSTATE_PLAYING : RemoteControlClient.PLAYSTATE_PAUSED);
+//            mRemoteControlClient.setPlaybackState(isPlaying() ?
+//                    RemoteControlClient.PLAYSTATE_PLAYING : RemoteControlClient.PLAYSTATE_PAUSED);
         } else if (what.equals(META_CHANGED)) {
-            RemoteControlClient.MetadataEditor ed = mRemoteControlClient.editMetadata(true);
-            ed.putString(MediaMetadataRetriever.METADATA_KEY_TITLE, getTrackName());
-            ed.putString(MediaMetadataRetriever.METADATA_KEY_ALBUM, getAlbumName());
-            ed.putString(MediaMetadataRetriever.METADATA_KEY_ARTIST, getArtistName());
-            ed.putLong(MediaMetadataRetriever.METADATA_KEY_DURATION, duration());
-            Bitmap b = MusicUtils.getArtwork(this, getAudioId(), getAlbumId(), false);
-            if (b != null) {
-                ed.putBitmap(MetadataEditor.BITMAP_KEY_ARTWORK, b);
-            }
-            ed.apply();
+//            RemoteControlClient.MetadataEditor ed = mRemoteControlClient.editMetadata(true);
+//            ed.putString(MediaMetadataRetriever.METADATA_KEY_TITLE, getTrackName());
+//            ed.putString(MediaMetadataRetriever.METADATA_KEY_ALBUM, getAlbumName());
+//            ed.putString(MediaMetadataRetriever.METADATA_KEY_ARTIST, getArtistName());
+//            ed.putLong(MediaMetadataRetriever.METADATA_KEY_DURATION, duration());
+//            Bitmap b = MusicUtils.getArtwork(this, getAudioId(), getAlbumId(), false);
+//            if (b != null) {
+//                ed.putBitmap(MetadataEditor.BITMAP_KEY_ARTWORK, b);
+//            }
+//            ed.apply();
         }
 
         if (what.equals(QUEUE_CHANGED)) {
@@ -1013,13 +1025,13 @@ public class MediaPlaybackService extends Service {
         Cursor c = getContentResolver().query(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                 mCursorCols, "_id=" + id , null, null);
-        if (c != null) {
+	    if(c!=null && c.getCount() >0){
             c.moveToFirst();
-        }
+	    }
         return c;
     }
 
-    private void openCurrentAndNext() {
+    private boolean openCurrentAndNext() {
         synchronized (this) {
             if (mCursor != null) {
                 mCursor.close();
@@ -1027,7 +1039,7 @@ public class MediaPlaybackService extends Service {
             }
 
             if (mPlayListLen == 0) {
-                return;
+                return false;
             }
             stop(false);
 
@@ -1052,7 +1064,7 @@ public class MediaPlaybackService extends Service {
                             mIsSupposedToBePlaying = false;
                             notifyChange(PLAYSTATE_CHANGED);
                         }
-                        return;
+                        return false;
                     }
                     mPlayPos = pos;
                     stop(false);
@@ -1069,7 +1081,7 @@ public class MediaPlaybackService extends Service {
                         mIsSupposedToBePlaying = false;
                         notifyChange(PLAYSTATE_CHANGED);
                     }
-                    return;
+                    return false;
                 }
             }
 
@@ -1082,14 +1094,17 @@ public class MediaPlaybackService extends Service {
             }
             setNextTrack();
         }
+		return true;
     }
 
     private void setNextTrack() {
         mNextPlayPos = getNextPosition(false);
-        if (mNextPlayPos >= 0) {
+        if (false && mNextPlayPos >= 0) {
             long id = mPlayList[mNextPlayPos];
             mPlayer.setNextDataSource(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI + "/" + id);
-        }
+        } else {
+	    mPlayer.setNextDataSource(null);
+	}
     }
 
     /**
@@ -1152,12 +1167,14 @@ public class MediaPlaybackService extends Service {
      * Starts playback of a previously opened file.
      */
     public void play() {
-        mAudioManager.requestAudioFocus(mAudioFocusListener, AudioManager.STREAM_MUSIC,
+        int status = mAudioManager.requestAudioFocus(mAudioFocusListener, AudioManager.STREAM_MUSIC,
                 AudioManager.AUDIOFOCUS_GAIN);
         mAudioManager.registerMediaButtonEventReceiver(new ComponentName(this.getPackageName(),
                 MediaButtonIntentReceiver.class.getName()));
-
-        if (mPlayer.isInitialized()) {
+	
+        if (status == AudioManager.AUDIOFOCUS_REQUEST_FAILED) {
+           return;
+        } else if (mPlayer.isInitialized()) {
             // if we are at the end of the song, go to the next song first
             long duration = mPlayer.duration();
             if (mRepeatMode != REPEAT_CURRENT && duration > 2000 &&
@@ -1218,7 +1235,11 @@ public class MediaPlaybackService extends Service {
     }
 
     private void stop(boolean remove_status_icon) {
-        if (mPlayer != null && mPlayer.isInitialized()) {
+	if (mPlayer == null) {
+            mPlayer = new MultiPlayer();
+            mPlayer.setHandler(mMediaplayerHandler);
+        }
+        if (mPlayer.isInitialized()) {
             mPlayer.stop();
         }
         mFileToPlay = null;
@@ -1301,8 +1322,16 @@ public class MediaPlaybackService extends Service {
                     // prev is a no-op
                     return;
                 }
-                Integer pos = mHistory.remove(histsize - 1);
-                mPlayPos = pos.intValue();
+
+		if (histsize > 1) {
+			Integer pos = mHistory.get(histsize - 2);
+			mHistory.remove(histsize - 1);
+			mHistory.remove(histsize - 2);
+			mPlayPos = pos.intValue();
+		} else {
+	                Integer pos = mHistory.remove(histsize - 1);
+        	        mPlayPos = pos.intValue();
+		}
             } else {
                 if (mPlayPos > 0) {
                     mPlayPos--;
@@ -1745,7 +1774,14 @@ public class MediaPlaybackService extends Service {
             if (mCursor == null) {
                 return null;
             }
-            return mCursor.getString(mCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST));
+            try {
+            	return mCursor.getString(mCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST));
+			} catch (Exception e) {
+				LOGD(" mCursor got exception");
+				// TODO: handle exception
+				return null;
+			}
+            
         }
     }
     
@@ -1754,7 +1790,14 @@ public class MediaPlaybackService extends Service {
             if (mCursor == null) {
                 return -1;
             }
-            return mCursor.getLong(mCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST_ID));
+            try {
+            	 return mCursor.getLong(mCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST_ID));
+			} catch (Exception e) {
+				LOGD(" mCursor got exception");
+				// TODO: handle exception
+				return -1;
+			}
+           
         }
     }
 
@@ -1763,7 +1806,14 @@ public class MediaPlaybackService extends Service {
             if (mCursor == null) {
                 return null;
             }
-            return mCursor.getString(mCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM));
+            try {
+            	return mCursor.getString(mCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM));
+			} catch (Exception e) {
+				LOGD(" mCursor got exception");
+				// TODO: handle exception
+				return null;
+			}
+            
         }
     }
 
@@ -1772,7 +1822,14 @@ public class MediaPlaybackService extends Service {
             if (mCursor == null) {
                 return -1;
             }
-            return mCursor.getLong(mCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID));
+            try {
+            	 return mCursor.getLong(mCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID));
+			} catch (Exception e) {
+				LOGD(" mCursor got exception");
+				// TODO: handle exception
+				return -1;
+			}
+           
         }
     }
 
@@ -1781,7 +1838,14 @@ public class MediaPlaybackService extends Service {
             if (mCursor == null) {
                 return null;
             }
-            return mCursor.getString(mCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE));
+            try {
+            	 return mCursor.getString(mCursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE));
+			} catch (Exception e) {
+				LOGD(" mCursor got exception");
+				// TODO: handle exception
+				return null;
+			}
+           
         }
     }
 
@@ -1790,7 +1854,14 @@ public class MediaPlaybackService extends Service {
             if (mCursor == null) {
                 return false;
             }
-            return (mCursor.getInt(PODCASTCOLIDX) > 0);
+            try {
+            	return (mCursor.getInt(PODCASTCOLIDX) > 0);
+			} catch (Exception e) {
+				LOGD(" mCursor got exception");
+				// TODO: handle exception
+				return false;
+			}
+            
         }
     }
     
@@ -1799,7 +1870,14 @@ public class MediaPlaybackService extends Service {
             if (mCursor == null) {
                 return 0;
             }
-            return mCursor.getLong(BOOKMARKCOLIDX);
+            try {
+            	return mCursor.getLong(BOOKMARKCOLIDX);
+			} catch (Exception e) {
+				LOGD(" mCursor got exception");
+				// TODO: handle exception
+				return 0;
+			}
+            
         }
     }
     
@@ -1949,6 +2027,13 @@ public class MediaPlaybackService extends Service {
             stop();
             mCurrentMediaPlayer.release();
         }
+
+	public void nextRelease() {
+	    if (mNextMediaPlayer != null) {
+                mNextMediaPlayer.release();
+                mNextMediaPlayer = null;
+            }
+	}
         
         public void pause() {
             mCurrentMediaPlayer.pause();

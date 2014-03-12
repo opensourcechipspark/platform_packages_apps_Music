@@ -47,6 +47,8 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.SeekBar.OnSeekBarChangeListener;
 import android.widget.Toast;
+import android.os.PowerManager.WakeLock;
+import android.os.PowerManager;
 
 import java.io.IOException;
 
@@ -69,10 +71,15 @@ public class AudioPreview extends Activity implements OnPreparedListener, OnErro
     private static final int OPEN_IN_MUSIC = 1;
     private AudioManager mAudioManager;
     private boolean mPausedByTransientLossOfFocus;
+    private WakeLock mWakeLock;
 
     @Override
     public void onCreate(Bundle icicle) {
         super.onCreate(icicle);
+
+	PowerManager pm = (PowerManager)getSystemService(Context.POWER_SERVICE);
+	mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AudioPreview");
+	mWakeLock.acquire();
         
         Intent intent = getIntent();
         if (intent == null) {
@@ -205,6 +212,7 @@ public class AudioPreview extends Activity implements OnPreparedListener, OnErro
     @Override
     public void onDestroy() {
         stopPlayback();
+	mWakeLock.release();
         super.onDestroy();
     }
 
